@@ -182,8 +182,6 @@ int create_reversed_directory(const char *dest_dir, struct stat st) {
 int reverse_copy_directory(const char *src_dir,  const char *dest_dir, char* original_src_dir, char* original_reversed_name, struct stat st) {
     int check_error;
     
-
-
     DIR *dir = opendir(src_dir);
     if (dir == NULL) {
         char error_str[] = "Opening directory: %s";
@@ -199,11 +197,16 @@ int reverse_copy_directory(const char *src_dir,  const char *dest_dir, char* ori
         return ERROR;
     }
     
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL){ 
+    
+    struct dirent *entry = readdir(dir);
+    while (entry != NULL){ 
+        
 
-
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 || (strcmp(src_dir, original_src_dir) == 0 && strcmp(entry->d_name, original_reversed_name) == 0)) {
+        if (strcmp(entry->d_name, ".") == 0
+            || strcmp(entry->d_name, "..") == 0
+            || (strcmp(src_dir, original_src_dir) == 0
+                && strcmp(entry->d_name, original_reversed_name) == 0)) {
+            entry = readdir(dir);
             continue;
         }
 
@@ -212,6 +215,7 @@ int reverse_copy_directory(const char *src_dir,  const char *dest_dir, char* ori
             closedir(dir);
             return ERROR;
         }
+        entry = readdir(dir);
     }
     
     closedir(dir);

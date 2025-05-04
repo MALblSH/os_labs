@@ -7,7 +7,7 @@ int main() {
     show_variable_addresses();
 
     int* bad_ptr = return_local_address();
-    printf("\nАдрес возвращённой локальной переменной: %p, значение: %d (неопределено)\n", (void*)bad_ptr, *bad_ptr);
+    printf("\nАдрес возвращённой локальной переменной: %p, значение: %d\n", (void*)bad_ptr, *bad_ptr);
 
     check_error = heap_memory_test();
     if (check_error == ERROR){
@@ -19,7 +19,7 @@ int main() {
     }
 
     
-    check_error = sleep(30);
+    check_error = sleep(60);
     if (check_error != 0){
         char error_str[] = "Незаконченный сон";
         perror(error_str);

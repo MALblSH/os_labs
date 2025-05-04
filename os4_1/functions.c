@@ -57,6 +57,7 @@ int environment_test() {
     if (var == NULL){
         printf("Переменная VAR не найдена\n");
     }
+    printf("Исходное значение: %s\n", var ? var : "не найдена");
 
     int check_error = setenv("VAR", "new_value", 1);
     if (check_error == ERROR){

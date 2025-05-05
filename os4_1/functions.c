@@ -10,12 +10,12 @@ void show_variable_addresses() {
     static int static_var = 6;
     const int const_local = 8;
 
-    printf("Локальная переменная: %p\n", &local);
-    printf("Статическая переменная: %p\n", &static_var);
-    printf("Константа в функции: %p\n", &const_local);
-    printf("Глобальная инициализированная: %p\n", &global_init);
-    printf("Глобальная неинициализированная: %p\n", &global_uninit);
-    printf("Глобальная константа: %p\n", &global_const);
+    printf("Локальная переменная: %p\n", (void*)&local);
+    printf("Статическая переменная: %p\n", (void*)&static_var);
+    printf("Константа в функции: %p\n", (void*)&const_local);
+    printf("Глобальная инициализированная: %p\n", (void*)&global_init);
+    printf("Глобальная неинициализированная: %p\n", (void*)&global_uninit);
+    printf("Глобальная константа: %p\n", (void*)&global_const);
 }
 
 int* return_local_address() {

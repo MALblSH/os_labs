@@ -34,7 +34,8 @@ int main() {
         ssize_t recv_len = recvfrom(sockfd, (char*)buffer, BUFFER_SIZE, 0, (struct sockaddr*)&client_addr, &client_len);
         if (recv_len == ERROR) {
             perror("recvfrom failed.\n");
-            continue;
+            close(sockfd);
+            return EXIT_FAILURE;
         }
         buffer[recv_len] = '\0';
         char* client_ip = inet_ntoa(client_addr.sin_addr);
@@ -43,10 +44,11 @@ int main() {
         ssize_t send_len = sendto(sockfd, buffer, recv_len, 0, (const struct sockaddr *)&client_addr, client_len);
         if (send_len == ERROR) {
             perror("sendto failed.\n");
-            continue;
+            close(sockfd);
+            return EXIT_FAILURE;
         }
         printf("Echoed back to client\n");
     }
     close(sockfd);
-    return 0;
+    return EXIT_SUCCESS;
 }

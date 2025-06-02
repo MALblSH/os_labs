@@ -35,7 +35,6 @@ int parent_print(int* local_var) {
     }
     int destroyed_signal = WIFSIGNALED(status);
     int destroyed_exit = WIFEXITED(status);
-
     if (destroyed_exit) {
         printf("child exited with status: %d\n", WEXITSTATUS(status));
     }

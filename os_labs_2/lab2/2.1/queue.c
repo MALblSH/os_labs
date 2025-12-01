@@ -122,6 +122,6 @@ void queue_print_stats(queue_t *q) {
 	printf("queue stats: current size %d; attempts: (%ld %ld %ld); counts (%ld %ld %ld)\n",
 		q->count,
 		q->add_attempts, q->get_attempts, q->add_attempts - q->get_attempts,
-		q->add_count, q->get_count, q->add_count - q->get_count);
+		q->add_count, q->get_count, q->add_count -q->get_count);
 }
 

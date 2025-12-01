@@ -95,6 +95,6 @@ int main() {
 		return ERROR;
     }	
 	queue_destroy(q);
+	
 	pthread_exit(NULL);
-	return EXIT_SUCCESS;
 }

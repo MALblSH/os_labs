@@ -19,7 +19,7 @@ queue_t* queue_init(int max_count) {
 	queue_t *q = malloc(sizeof(queue_t));
 	if (q == NULL) {
 		printf("Cannot allocate memory for a queue\n");
-		abort();
+		return NULL;
 	}
 
 	q->first = NULL;
@@ -33,28 +33,28 @@ queue_t* queue_init(int max_count) {
 	err = pthread_create(&q->qmonitor_tid, NULL, qmonitor, q);
 	if (err != SUCCESS) {
 		printf("queue_init: pthread_create() failed: %s\n", strerror(err));
-		abort();
+		return NULL;
 	}
 
 	return q;
 }
 
-void queue_destroy(queue_t *q) {
+int queue_destroy(queue_t *q) {
     if (q == NULL){
-		return;
+		return SUCCESS;
 	}
     
     int err;
 	err = pthread_cancel(q->qmonitor_tid);
     if (err != SUCCESS){
 		printf("queue_destroy: pthread_cancel() failed: %s\n", strerror(err)); 
-		abort();
+		return ERROR;
 	}
     
     err = pthread_join(q->qmonitor_tid, NULL);
     if (err != SUCCESS){
 		printf("queue_destroy: pthread_join() failed: %s\n", strerror(err));
-		abort();
+		return ERROR;
 	}
     
     qnode_t *current = q->first;
@@ -65,6 +65,7 @@ void queue_destroy(queue_t *q) {
     }
 
     free(q);
+	return SUCCESS;
 }
 
 int queue_add(queue_t *q, int val) {
@@ -78,7 +79,7 @@ int queue_add(queue_t *q, int val) {
 	qnode_t *new = malloc(sizeof(qnode_t));
 	if (new == NULL) {
 		printf("Cannot allocate memory for new node\n");
-		abort();
+		return ERROR;
 	}
 
 	new->val = val;

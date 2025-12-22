@@ -36,7 +36,8 @@ int check_src_dst(const char* src, const char* dst) {
     }
 
     char dst_parent_real[PATH_MAX];
-    if (realpath(dst_copy, dst_parent_real) == NULL) {
+    check_error_char = realpath(dst_copy, dst_parent_real);
+    if (check_error_char == NULL) {
         perror("realpath(dst parent)");
         return ERROR;
     }

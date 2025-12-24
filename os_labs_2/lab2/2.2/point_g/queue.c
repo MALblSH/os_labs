@@ -121,11 +121,7 @@ int queue_add(queue_t *q, int val) {
 	int err;	
 	q->add_attempts++;
 	int old_cancel_state;
-	qnode_t *new = malloc(sizeof(qnode_t));
-	if (new == NULL) {
-		printf("Cannot allocate memory for new node\n");		
-		return QUEUE_ERROR;
-	}
+	
 	err = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &old_cancel_state);
 	if (err != SUCCESS) {
 		printf("queue_add: pthread_setcancelstate() failed: %s\n", strerror(err)); 
@@ -138,6 +134,7 @@ int queue_add(queue_t *q, int val) {
 		if (err != SUCCESS) printf("queue_add: pthread_setcancelstate() failed: %s\n", strerror(err)); 	
         return QUEUE_ERROR;
     }
+	
 	err = sem_wait(&q->queue_lock);
     if (err != SUCCESS) {
         printf("queue_add: sem_wait(queue_lock) failed: %s\n", strerror(err));
@@ -147,6 +144,12 @@ int queue_add(queue_t *q, int val) {
 		if (err != SUCCESS) printf("queue_add: pthread_setcancelstate() failed: %s\n", strerror(err)); 
         return QUEUE_ERROR;
     }
+
+	qnode_t *new = malloc(sizeof(qnode_t));
+	if (new == NULL) {
+		printf("Cannot allocate memory for new node\n");		
+		return QUEUE_ERROR;
+	}
 
 	new->val = val;
 	new->next = NULL;

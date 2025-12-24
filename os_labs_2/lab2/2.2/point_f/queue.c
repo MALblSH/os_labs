@@ -116,6 +116,7 @@ int queue_add(queue_t *q, int val) {
 	}
 	
 	int old_cancel_state;
+	
 	err = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &old_cancel_state);
 	if (err != SUCCESS) {
 		printf("queue_add: pthread_setcancelstate() failed: %s\n", strerror(err)); 
@@ -123,7 +124,7 @@ int queue_add(queue_t *q, int val) {
 		if (err != SUCCESS) printf("queue_add: pthread_mutex_unlock() failed: %s\n", strerror(err)); 
 		return QUEUE_ERROR;
 	}
-
+		
 	q->add_attempts++;	
 	while (q->count == q->max_count) {
 		pthread_cond_wait(&q->cond, &q->mutex);
@@ -146,6 +147,7 @@ int queue_add(queue_t *q, int val) {
 	if (err != SUCCESS) {
 		printf("queue_add: pthread_setcancelstate() failed: %s\n", strerror(err));
 	}
+		
 	err = pthread_mutex_unlock(&q->mutex);
 	if (err != SUCCESS) {
 		printf("queue_add: pthread_mutex_unlock() failed: %s\n", strerror(err));
@@ -163,7 +165,9 @@ int queue_get(queue_t *q, int *val) {
 		printf("queue_get: pthread_mutex_lock() failed: %s\n", strerror(err));
 		return QUEUE_ERROR;
 	}
+	
 	int old_cancel_state;
+	
 	err = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &old_cancel_state);
 	if (err != SUCCESS) {
 		printf("queue_get: pthread_setcancelstate() failed: %s\n", strerror(err)); 
@@ -171,8 +175,9 @@ int queue_get(queue_t *q, int *val) {
 		if (err != SUCCESS) printf("queue_get: pthread_mutex_unlock() failed: %s\n", strerror(err)); 
 		return QUEUE_ERROR;
 	}
-	
+		
 	q->get_attempts++;
+
 	while (q->count == 0) {
 		pthread_cond_wait(&q->cond, &q->mutex);
 	}
@@ -191,6 +196,7 @@ int queue_get(queue_t *q, int *val) {
 	if (err != SUCCESS) {
 		printf("queue_get: pthread_setcancelstate() failed: %s\n", strerror(err));
 	}
+	
 	err = pthread_mutex_unlock(&q->mutex);
 	if (err != SUCCESS) {
 		printf("queue_get: pthread_mutex_unlock() failed: %s\n", strerror(err)); 

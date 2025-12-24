@@ -15,7 +15,6 @@
 #define RED "\033[41m" 
 #define NOCOLOR "\033[0m"
 
-
 int cancel_and_join_thread(pthread_t thread, char *thread_name) {
 	int err;
 	err = pthread_cancel(thread);
@@ -54,7 +53,6 @@ void *reader(void *arg) {
 	printf("reader [%d %d %d]\n", getpid(), getppid(), gettid());
 
 	set_cpu(1);
-
 	while (true) {
 		pthread_testcancel();
 		int val = -1;
@@ -76,7 +74,6 @@ void *writer(void *arg) {
 	printf("writer [%d %d %d]\n", getpid(), getppid(), gettid());
 
 	set_cpu(2);
-
 	while (true) {
 		pthread_testcancel();
 		int ok = queue_add(q, i);
@@ -95,7 +92,7 @@ int main() {
 	queue_t *q;
 	int err;
 	printf("main [%d %d %d]\n", getpid(), getppid(), gettid());
-	q = queue_init(100000000);
+	q = queue_init(1000000000);
 	if (q == NULL) {  
         printf(RED"ERROR: Failed to initialize queue" NOCOLOR "\n");
         return ERROR;
@@ -119,12 +116,12 @@ int main() {
 	}
 	sleep(SLEEP_TIME);
 	int result;
-	
-	result = cancel_and_join_thread(writer_tid, "writer");
+
+	result = cancel_and_join_thread(reader_tid, "reader");
 	if (result != SUCCESS) {
 		return ERROR;
 	}
-	result = cancel_and_join_thread(reader_tid, "reader");
+	result = cancel_and_join_thread(writer_tid, "writer");
 	if (result != SUCCESS) {
 		return ERROR;
 	}

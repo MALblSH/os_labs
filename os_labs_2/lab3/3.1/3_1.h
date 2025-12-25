@@ -9,6 +9,8 @@
 #define ERROR -1
 #define BUFFER_SIZE 8192
 #define MAX_RETRIES 100
+#define CURRENT_DIR "."
+#define PARENT_DIR ".."
 
 
 typedef struct {

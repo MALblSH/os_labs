@@ -7,7 +7,72 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <pthread.h>
+#include <sys/stat.h>
+#include <limits.h>
 #include "3_1.h"
+
+pthread_mutex_t count_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t  count_cond  = PTHREAD_COND_INITIALIZER;
+int active_threads = 0;
+int fatal_error = 0;
+
+int thread_inc(void) {
+    int err;
+    err = pthread_mutex_lock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("thread_inc: pthread_mutex_lock() failed: %s\n", strerror(err));
+        return ERROR;
+    }
+    active_threads++;
+    err = pthread_mutex_unlock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("thread_inc: pthread_mutex_unlock() failed: %s\n", strerror(err));
+        return ERROR;
+    }
+    return SUCCESS;
+}
+
+int thread_dec(void) {
+    int err;
+    err = pthread_mutex_lock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("thread_dec: pthread_mutex_lock() failed: %s\n", strerror(err));
+        return ERROR;
+    }
+    active_threads--;
+    if (active_threads == 0) {
+        pthread_cond_signal(&count_cond);
+    }
+    err = pthread_mutex_unlock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("thread_dec: pthread_mutex_unlock() failed: %s\n", strerror(err));
+        return ERROR;
+    }  
+    return SUCCESS; 
+}
+
+int report_fatal_error(const char *msg) {
+    int err;
+    err = pthread_mutex_lock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("report_fatal_error: pthread_mutex_lock() failed: %s\n", strerror(err));
+        return ERROR;
+    }
+
+    fatal_error = 1;
+
+    fprintf(stderr, "FATAL ERROR: %s: %s\n", msg, strerror(errno));
+
+    pthread_cond_signal(&count_cond);
+
+    err = pthread_mutex_unlock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("report_fatal_error: pthread_mutex_unlock() failed: %s\n", strerror(err));
+        return ERROR;
+    } 
+    return SUCCESS;
+}
 
 int build_path(char* path, size_t size, const char* dir, const char* name) {
     int len_path = snprintf(path, size, "%s/%s", dir, name);
@@ -45,13 +110,12 @@ int check_src_dst(const char* src, const char* dst) {
     size_t src_len = strlen(src_real);
     if (strncmp(dst_parent_real, src_real, src_len) == 0 &&
         (dst_parent_real[src_len] == '/' || dst_parent_real[src_len] == '\0')) {
-        fprintf(stderr, "Error: destination is inside source\n");
+        perror("Error: destination is inside source");
         return ERROR;
     }
 
     return SUCCESS;
 }
-
 
 int open_with_retry(const char* path, int flags, mode_t mode) {
     int fd;
@@ -59,12 +123,12 @@ int open_with_retry(const char* path, int flags, mode_t mode) {
     while (retries < MAX_RETRIES) {
         fd = open(path, flags, mode);
         if (fd != ERROR) {
-            return fd;  
-        }      
+            return fd;
+        }
         if (errno != EMFILE) {
             printf("open_with_retry: open() failed for %s: %s\n", path, strerror(errno));
             return ERROR;
-        }     
+        }
         retries++;
         sleep(1);
     }
@@ -73,16 +137,16 @@ int open_with_retry(const char* path, int flags, mode_t mode) {
 
 DIR* opendir_with_retry(const char* path) {
     DIR* dir;
-    int retries = 0;    
+    int retries = 0;
     while (retries < MAX_RETRIES) {
         dir = opendir(path);
         if (dir != NULL) {
-            return dir; 
-        }         
+            return dir;
+        }
         if (errno != EMFILE) {
             printf("opendir_with_retry: opendir() failed for %s: %s\n", path, strerror(errno));
             return NULL;
-        }     
+        }
         retries++;
         sleep(1);
     }
@@ -90,70 +154,110 @@ DIR* opendir_with_retry(const char* path) {
 }
 
 void *copy_file_thread(void* arg) {
-    int err;
     task_t* task = (task_t*)arg;
     char buffer[BUFFER_SIZE];
+    int err;
     ssize_t bytes_read, bytes_written;
-    int write_error = 0;
     struct stat src_stat;
+    int copy_error = 0;
+
+    err = thread_inc();
+    if (err != SUCCESS){
+        free(task);
+        err = report_fatal_error("copy_file_thread: thread_inc failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+        return NULL;
+    }
+
     err = lstat(task->src_path, &src_stat);
     if (err != SUCCESS) {
-        printf("copy_file_thread: lstat() failed for %s: %s\n", task->src_path, strerror(errno));
         free(task);
+        err = report_fatal_error("copy_file_thread: lstat failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
         return NULL;
     }
 
     int src_fd = open_with_retry(task->src_path, O_RDONLY, 0);
     if (src_fd == ERROR) {
-        printf("copy_file_thread: failed to open source %s\n", task->src_path);
         free(task);
-        return NULL;
-    }    
-    int dst_fd = open_with_retry(task->dst_path, O_WRONLY | O_CREAT | O_TRUNC, src_stat.st_mode);
-    if (dst_fd == ERROR) {
-        printf("copy_file_thread: failed to create target %s\n", task->dst_path);
-        err = close(src_fd);
-        if (err != SUCCESS) {
-            printf("copy_file_thread: close() failed for source fd: %s\n", strerror(errno));
+        err = report_fatal_error("copy_file_thread: failed to open source file");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
         }
-        free(task);
         return NULL;
     }
-    
+
+    int dst_fd = open_with_retry(task->dst_path, O_WRONLY | O_CREAT | O_TRUNC, src_stat.st_mode);
+    if (dst_fd == ERROR) {
+        close(src_fd);
+        free(task);
+        err = report_fatal_error("copy_file_thread: failed to open destination file");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+        return NULL;
+    }
+
     while (1) {
         bytes_read = read(src_fd, buffer, BUFFER_SIZE);
         if (bytes_read == ERROR) {
-            printf("copy_file_thread: read() error from %s: %s\n", task->src_path, strerror(errno));
+            copy_error = 1;
             break;
-        }        
-        if (bytes_read == 0) {  
-            break;  
         }
-        
+        if (bytes_read == 0) {
+            break;
+        }
+
         ssize_t total_written = 0;
         char* ptr = buffer;
         while (total_written < bytes_read) {
             bytes_written = write(dst_fd, ptr + total_written, bytes_read - total_written);
             if (bytes_written == ERROR) {
-                printf("copy_file_thread: write error to %s: %s\n", task->dst_path, strerror(errno));
-                write_error = 1;
+                copy_error = ERROR;
                 break;
             }
             total_written += bytes_written;
         }
-        if (write_error) {
+        if (copy_error) {
             break;  
-        }        
+        }   
     }
+
     err = close(src_fd);
     if (err != SUCCESS) {
-        printf("copy_file_thread: close() failed for source fd: %s\n", strerror(errno));
+        err = report_fatal_error("copy_file_thread: close() failed for source fd:"); 
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
     }    
     err = close(dst_fd);
     if (err != SUCCESS) {
-        printf("copy_file_thread: close() failed for target fd: %s\n", strerror(errno));
-    }    
+        err = report_fatal_error("copy_file_thread: close() failed for source fd:");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+    }
     free(task);
+
+    if (copy_error == ERROR){
+        err = report_fatal_error("thread_dec failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+        return NULL;
+    }
+    err = thread_dec();
+    if (err != SUCCESS){
+        err = report_fatal_error("thread_dec failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+        return NULL;
+    }
     return NULL;
 }
 
@@ -177,6 +281,8 @@ int create_file_task(const char* src_path, const char* dst_path) {
     err = pthread_detach(thread);
     if (err != SUCCESS) {
         printf("create_file_task: pthread_detach() failed: %s\n", strerror(err));
+        free(task);
+		return ERROR;
     }    
     return SUCCESS;
 }
@@ -201,6 +307,8 @@ int create_directory_task(const char* src_path, const char* dst_path) {
     err = pthread_detach(thread);
     if (err != SUCCESS) {
         printf("create_directory_task: pthread_detach() failed: %s\n", strerror(err));
+        free(task);
+		return ERROR;
     }    
     return SUCCESS;
 }
@@ -236,26 +344,46 @@ int process_single_entry(const char* src_dir, const char* dst_dir, const char* e
 }
 
 void *work_directory_thread(void* arg) {
-    int err;
     task_t* task = (task_t*)arg;
     struct stat src_stat;
-    err = lstat(task->src_path, &src_stat);
-    if (err != SUCCESS) {
-        printf("work_directory_thread: lstat() failed for %s: %s\n", task->src_path, strerror(errno));
+    int err;
+    err = thread_inc();
+    if (err != SUCCESS){
         free(task);
+        err = report_fatal_error("thread_inc failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
         return NULL;
     }
+
+    err = lstat(task->src_path, &src_stat);
+    if (err != SUCCESS) {
+        free(task);
+        err = report_fatal_error("thread_inc failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+        return NULL;
+    }
+
     err = mkdir(task->dst_path, src_stat.st_mode);
     if (err != SUCCESS && errno != EEXIST) {
-        printf("work_directory_thread: mkdir() failed for %s: %s\n", task->src_path, strerror(errno));
         free(task);
+        err = report_fatal_error("thread_inc failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
         return NULL;
-    }   
+    }
 
     DIR* dir = opendir_with_retry(task->src_path);
     if (dir == NULL) {
-        printf("work_directory_thread: failed to open directory %s\n", task->src_path);
         free(task);
+        err = report_fatal_error("thread_inc failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
         return NULL;
     }
 
@@ -265,38 +393,62 @@ void *work_directory_thread(void* arg) {
         entry = readdir(dir);
         if (entry == NULL && errno != SUCCESS) {
             printf("work_directory_thread: readdir error: %s\n", strerror(errno));
-            err = ERROR;
-            break;
+            closedir(dir);
+            free(task);
+            err = report_fatal_error("thread_inc failed");
+            if (err != SUCCESS){
+                fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+            }
+            return NULL;
         }   
         if (entry == NULL) {
             err = SUCCESS;
             break; 
-        }                
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        }
+        if (strcmp(entry->d_name, CURRENT_DIR) == 0 || strcmp(entry->d_name, PARENT_DIR) == 0) {
             continue;
         }
         err = process_single_entry(task->src_path, task->dst_path, entry->d_name);
-        if (err != SUCCESS) {
-            printf("work_directory_thread: failed to add task for %s\n", entry->d_name);
+        if (err != SUCCESS){
+            closedir(dir);
+            free(task);
+            err = report_fatal_error("process_single_entry failed");
+            if (err != SUCCESS){
+                fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+            }
+            return NULL;
         }
-    } 
+    }
+
     err = closedir(dir);
     if (err != SUCCESS) {
-        printf("work_directory_thread: closedir() failed: %s\n", strerror(errno));
-    }    
+        err = report_fatal_error("work_directory_thread: closedir() failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+    } 
     free(task);
+    err = thread_dec();
+    if (err != SUCCESS){
+        err = report_fatal_error("thread_inc failed");
+        if (err != SUCCESS){
+            fprintf(stderr, "FATAL ERROR: report_fatal_error failed\n");
+        }
+        return NULL;
+    }
     return NULL;
 }
 
-int main(int argc, char* argv[]) {   
-    int err;
-    struct stat stat_buf; 
+int main(int argc, char* argv[]) {
+    struct stat stat_buf;
     pthread_t main_thread;
+    int err;
+
     if (argc != 3) {
-        printf("Use %s source_directory target_directory\n", argv[0]);
+        printf("Usage: %s src dst\n", argv[0]);
         return ERROR;
-    } 
-    
+    }
+
     err = lstat(argv[1], &stat_buf);
     if (err != SUCCESS) {
         printf("main: lstat() failed: %s\n", strerror(errno));
@@ -317,18 +469,48 @@ int main(int argc, char* argv[]) {
         printf("main: memory allocation failed\n");
         return ERROR;
     }
+
     strcpy(task->src_path, argv[1]);
     strcpy(task->dst_path, argv[2]);
-    
+
     err = pthread_create(&main_thread, NULL, work_directory_thread, task);
 	if (err != SUCCESS) {
-		printf("main: pthread_create() failed: %s\n", strerror(err));
+        printf("main: pthread_create() failed: %s\n", strerror(err));
         free(task);
 		return ERROR;
-	}
-    err = pthread_detach(main_thread);
-    if (err != SUCCESS) {
-        printf("main: pthread_detach() failed: %s\n", strerror(err));
     }
-    pthread_exit(NULL);
+
+    err = pthread_join(main_thread, NULL);
+	if (err != SUCCESS) {
+		printf("main: pthread_join() failed: %s\n", strerror(err));
+		return ERROR;
+	}
+
+    err = pthread_mutex_lock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("main: pthread_mutex_lock() failed: %s\n", strerror(err));
+        return ERROR;
+    }
+
+    while (active_threads > 0 && !fatal_error) {
+        pthread_cond_wait(&count_cond, &count_mutex);
+    }
+
+    if (fatal_error) {
+        err = pthread_mutex_unlock(&count_mutex);
+            if (err != SUCCESS) {
+            printf("main: pthread_mutex_unlock() failed: %s\n", strerror(err));
+            return ERROR;
+        }
+        fprintf(stderr, "main: terminated due to fatal error\n");
+        return ERROR;
+    }
+    err = pthread_mutex_unlock(&count_mutex);
+    if (err != SUCCESS) {
+        printf("main: pthread_mutex_unlock() failed: %s\n", strerror(err));
+        return ERROR;
+    }
+
+    printf("main: all tasks completed\n");
+    return SUCCESS;
 }
